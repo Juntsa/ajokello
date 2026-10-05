@@ -64,6 +64,17 @@
     border:2px solid var(--ok);opacity:.5;animation:ring 2.4s ease-out infinite;
   }
   @keyframes ring{0%{transform:scale(.96);opacity:.6}100%{transform:scale(1.12);opacity:0}}
+  .stopbtn{
+    margin-top:18px;display:none;background:rgba(255,255,255,.1);border:1px solid var(--line);
+    color:var(--ink);border-radius:999px;padding:13px 26px;font-size:16px;font-weight:500;cursor:pointer;
+  }
+  .stopbtn:active{transform:scale(.97)}
+  .stopbtn:disabled{opacity:.5}
+  .stoplist{margin-top:10px;font-size:13px;color:var(--ink-dim);line-height:1.6;text-align:center;max-width:100%}
+  .stoplist b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+  .srow{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+  .srow .st{flex:0 0 74px}
+  .srow .del{background:none;border:none;color:var(--ink-faint);font-size:20px;cursor:pointer;padding:2px 6px}
   .cancel{margin-top:14px;background:none;border:none;color:var(--ink-faint);font-size:13px;text-decoration:underline;cursor:pointer;display:none}
   .sum{font-size:clamp(13px,3.8vw,15px);color:var(--ink-dim);letter-spacing:.03em;margin-top:2vh}
   .sum b{color:var(--ink);font-weight:500}
@@ -173,6 +184,8 @@
 
   <div class="mid">
     <button class="big" id="bigbtn"><span id="bigtxt">Lähtö</span><small id="bigsub">aloita ajo</small></button>
+    <button class="stopbtn" id="stopbtn">📍 Pysähdys</button>
+    <div class="stoplist" id="stoplist"></div>
     <button class="cancel" id="cancelbtn">Peruuta käynnissä oleva ajo</button>
   </div>
 
@@ -258,6 +271,9 @@
   </div>
   <label class="f" for="e_sa">Lähtöpaikka</label>
   <input type="text" id="e_sa" maxlength="120">
+  <label class="f">Välipysähdykset</label>
+  <div id="e_stops"></div>
+  <button class="btn" id="e_addstop">+ Lisää pysähdys</button>
   <label class="f" for="e_ea">Määränpää</label>
   <input type="text" id="e_ea" maxlength="120">
   <div class="row" style="margin-top:12px">
@@ -487,6 +503,11 @@ function renderMain(){
   $("bigtxt").textContent = act ? "Perillä" : "Lähtö";
   $("bigsub").textContent = act ? "lopeta ajo" : "aloita ajo";
   $("cancelbtn").style.display = act ? "inline-block" : "none";
+  $("stopbtn").style.display = act ? "inline-block" : "none";
+  const stops = act && Array.isArray(act.stops) ? act.stops : [];
+  $("stoplist").innerHTML = stops.length
+    ? "Pysähdykset: " + stops.map(s => "<b>" + fmtT(s.ts) + "</b> " + esc(s.addr)).join(" · ")
+    : "";
   if (act){
     $("status").innerHTML = "Ajossa · lähtö <b>" + fmtT(act.startTs) + "</b> · " + esc(act.startAddr) +
       "<br><span id='elapsed'></span> · mittari " + fmtN(act.odoStart) + " km";
@@ -640,6 +661,7 @@ async function confirmCapture(){
         startAddr:act.startAddr, endAddr:addr,
         startLat:act.startLat, startLon:act.startLon,
         endLat:my.pos ? my.pos.lat : null, endLon:my.pos ? my.pos.lon : null,
+        stops:Array.isArray(act.stops) ? act.stops : [],
         odoStart:act.odoStart, odoEnd:odo, km:odo - act.odoStart,
         purpose, type, vehicle:cfg().vehicle,
         startPhoto:act.startPhoto, endPhoto:pid, routeKm:my.route
@@ -655,6 +677,37 @@ async function confirmCapture(){
   }
   renderMain();
 }
+/* ================= välipysähdys: one tap = address + time ================= */
+let stopBusy = false;
+async function addStop(){
+  if (stopBusy || !getActive()) return;
+  stopBusy = true;
+  $("stopbtn").disabled = true;
+  const ts = Date.now();
+  toast("Haetaan sijaintia…");
+  try{
+    const pos = await getPos();
+    let addr = "";
+    if (pos) addr = await revGeo(pos.lat, pos.lon);
+    if (!addr) addr = pos ? (pos.lat + ", " + pos.lon) : "Paikka ei tiedossa (korjaa päiväkirjassa)";
+    const act = getActive();
+    if (!act) return;
+    act.stops = Array.isArray(act.stops) ? act.stops : [];
+    act.stops.push({ts, addr, lat:pos ? pos.lat : null, lon:pos ? pos.lon : null});
+    LS.set("active", act);
+    toast("Pysähdys tallennettu: " + addr);
+  } finally {
+    stopBusy = false;
+    $("stopbtn").disabled = false;
+    renderMain();
+  }
+}
+function stopsOf(t){ return Array.isArray(t.stops) ? t.stops : []; }
+function routeText(t){
+  return [t.startAddr].concat(stopsOf(t).map(s => s.addr), [t.endAddr]).join(" → ");
+}
+function stopsCsv(t){ return stopsOf(t).map(s => fmtT(s.ts) + " " + s.addr).join(" | "); }
+
 async function cancelActive(){
   const act = getActive();
   if (!act) return;
@@ -682,7 +735,7 @@ function renderJournal(){
     "<div class='jrow" + (t.type === "priv" ? " priv" : "") + "' data-id='" + t.id + "'>" +
     "<div class='l1'><span class='d'>" + esc(fmtDay.format(new Date(t.startTs))) + " " + fmtT(t.startTs) + "–" + fmtT(t.endTs) +
     "</span><span>" + fmtN(t.km) + " km</span></div>" +
-    "<div class='l2'>" + esc(t.startAddr) + " → " + esc(t.endAddr) + "<br>" + esc(t.purpose) +
+    "<div class='l2'>" + esc(routeText(t)) + "<br>" + esc(t.purpose) +
     (t.type === "priv" ? " · yksityinen" : "") + ((t.startPhoto != null || t.endPhoto != null) ? " · 📷" : "") + "</div></div>"
   ).join("");
   $("jlist").querySelectorAll(".jrow").forEach(r => r.addEventListener("click", () => openEdit(+r.dataset.id)));
@@ -708,6 +761,8 @@ async function openEdit(id){
   $("e_et").value = t ? timeStrOf(t.endTs) : "";
   $("e_sa").value = t ? t.startAddr : "";
   $("e_ea").value = t ? t.endAddr : "";
+  $("e_stops").innerHTML = "";
+  (t ? stopsOf(t) : []).forEach(s => addStopRow(timeStrOf(s.ts), s.addr, s));
   $("e_os").value = t && t.odoStart != null ? t.odoStart : "";
   $("e_oe").value = t && t.odoEnd != null ? t.odoEnd : "";
   $("e_km").value = t ? t.km : "";
@@ -727,6 +782,31 @@ async function openEdit(id){
       $("e_photos").appendChild(fig);
     }
   }
+}
+function addStopRow(time, addr, orig){
+  const row = document.createElement("div");
+  row.className = "srow";
+  const ti = document.createElement("input"); ti.type = "time"; ti.className = "st"; ti.value = time || "";
+  const ai = document.createElement("input"); ai.type = "text"; ai.className = "grow"; ai.maxLength = 120; ai.value = addr || "";
+  ai.placeholder = "Osoite / paikka";
+  const del = document.createElement("button"); del.className = "del"; del.textContent = "×"; del.setAttribute("aria-label", "Poista pysähdys");
+  del.addEventListener("click", () => row.remove());
+  row._orig = orig || null;
+  row.append(ti, ai, del);
+  $("e_stops").appendChild(row);
+}
+function readStopRows(date, startTs){
+  const out = [];
+  for (const row of $("e_stops").querySelectorAll(".srow")){
+    const [ti, ai] = row.querySelectorAll("input");
+    const addr = ai.value.trim();
+    if (!addr) continue;
+    let ts = ti.value ? tsFrom(date, ti.value) : startTs;
+    if (ts < startTs) ts += 864e5;
+    const o = row._orig || {};
+    out.push({ts, addr, lat:o.addr === addr ? (o.lat ?? null) : null, lon:o.addr === addr ? (o.lon ?? null) : null});
+  }
+  return out.sort((a,b) => a.ts - b.ts);
 }
 function calcEditKm(){
   const os = parseInt($("e_os").value, 10), oe = parseInt($("e_oe").value, 10);
@@ -750,15 +830,16 @@ function saveEdit(){
   const startTs = tsFrom(date, st);
   let endTs = tsFrom(date, et);
   if (endTs < startTs) endTs += 864e5;
+  const stops = readStopRows(date, startTs);
   const trips = getTrips();
   const type = $("e_type").value;
   if (editId == null){
-    trips.push({id:Date.now(), startTs, endTs, startAddr:sa, endAddr:ea, startLat:null, startLon:null, endLat:null, endLon:null,
+    trips.push({id:Date.now(), startTs, endTs, startAddr:sa, endAddr:ea, stops, startLat:null, startLon:null, endLat:null, endLon:null,
       odoStart:os, odoEnd:oe, km, purpose:pur, type, vehicle:cfg().vehicle, startPhoto:null, endPhoto:null, routeKm:null});
   } else {
     const t = trips.find(x => x.id === editId);
     if (!t) return err("Ajoa ei löytynyt.");
-    Object.assign(t, {startTs, endTs, startAddr:sa, endAddr:ea, odoStart:os, odoEnd:oe, km, purpose:pur, type});
+    Object.assign(t, {startTs, endTs, startAddr:sa, endAddr:ea, stops, odoStart:os, odoEnd:oe, km, purpose:pur, type});
   }
   setTrips(trips);
   jm = monthKey(startTs);
@@ -791,9 +872,9 @@ function csvCell(v){
   return /[";\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function buildCsv(list){
-  const head = ["Päivä","Lähtöaika","Saapumisaika","Lähtöpaikka","Määränpää","Tarkoitus","Laji","Mittari alussa","Mittari lopussa","Km","Rekisterinumero"];
+  const head = ["Päivä","Lähtöaika","Saapumisaika","Lähtöpaikka","Välipysähdykset","Määränpää","Tarkoitus","Laji","Mittari alussa","Mittari lopussa","Km","Rekisterinumero"];
   const rows = list.slice().sort((a,b) => a.startTs - b.startTs).map(t => [
-    fmtDateLong(t.startTs), fmtT(t.startTs), fmtT(t.endTs), t.startAddr, t.endAddr, t.purpose,
+    fmtDateLong(t.startTs), fmtT(t.startTs), fmtT(t.endTs), t.startAddr, stopsCsv(t), t.endAddr, t.purpose,
     t.type === "priv" ? "Yksityinen" : "Työ",
     t.odoStart == null ? "" : t.odoStart, t.odoEnd == null ? "" : t.odoEnd,
     String(t.km).replace(".", ","), t.vehicle || ""
@@ -821,10 +902,10 @@ function showPrint(){
   let h = "<div class='bar'><button class='btn' id='pv_print'>Tulosta / tallenna PDF</button><button class='btn' id='pv_close'>Sulje</button></div>" +
     "<h1>Ajopäiväkirja · " + esc(monthLabel(jm)) + "</h1><p>Ajoneuvo: " + esc(c.vehicle || "–") +
     " · Työajot yhteensä " + fmtN(wk) + " km · korvaus " + eur(wk, c.rate) + " (" + String(c.rate).replace(".", ",") + " €/km)</p>" +
-    "<table><tr><th>Päivä</th><th>Lähtö</th><th>Perillä</th><th>Lähtöpaikka</th><th>Määränpää</th><th>Tarkoitus</th><th>Laji</th><th>Mittari alku</th><th>Mittari loppu</th><th>Km</th></tr>";
+    "<table><tr><th>Päivä</th><th>Lähtö</th><th>Perillä</th><th>Reitti</th><th>Tarkoitus</th><th>Laji</th><th>Mittari alku</th><th>Mittari loppu</th><th>Km</th></tr>";
   list.forEach(t => {
-    h += "<tr><td>" + fmtDateLong(t.startTs) + "</td><td>" + fmtT(t.startTs) + "</td><td>" + fmtT(t.endTs) + "</td><td>" + esc(t.startAddr) +
-      "</td><td>" + esc(t.endAddr) + "</td><td>" + esc(t.purpose) + "</td><td>" + (t.type === "priv" ? "Yksityinen" : "Työ") +
+    h += "<tr><td>" + fmtDateLong(t.startTs) + "</td><td>" + fmtT(t.startTs) + "</td><td>" + fmtT(t.endTs) + "</td><td>" + esc(routeText(t)) +
+      "</td><td>" + esc(t.purpose) + "</td><td>" + (t.type === "priv" ? "Yksityinen" : "Työ") +
       "</td><td>" + (t.odoStart == null ? "" : t.odoStart) + "</td><td>" + (t.odoEnd == null ? "" : t.odoEnd) + "</td><td>" + fmtN(t.km) + "</td></tr>";
   });
   h += "</table>";
@@ -889,6 +970,8 @@ async function restoreBackup(obj){
 function wire(){
   $("bigbtn").addEventListener("click", () => openCapture(getActive() ? "end" : "start"));
   $("cancelbtn").addEventListener("click", cancelActive);
+  $("stopbtn").addEventListener("click", addStop);
+  $("e_addstop").addEventListener("click", () => addStopRow("", "", null));
   $("capclose").addEventListener("click", closeSheets);
   $("capok").addEventListener("click", confirmCapture);
   $("addr").addEventListener("input", () => { if (cap) cap.addrEdited = true; });
