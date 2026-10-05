@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0d12">
+<title>Ajokello</title>
+<style>
+  :root{
+    --ink:#ffffff;
+    --ink-dim:rgba(255,255,255,.72);
+    --ink-faint:rgba(255,255,255,.45);
+    --accent:#ffd9a0;
+    --ok:#9fe0b0;
+    --warn:#ffb4a0;
+    --sheet:rgba(14,17,23,.97);
+    --line:rgba(255,255,255,.14);
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    background:#0a0d12;color:var(--ink);
+  }
+  .bg{
+    position:fixed;inset:0;
+    background:
+      radial-gradient(120% 90% at 20% 10%, #1c2a3f 0%, transparent 60%),
+      radial-gradient(120% 100% at 85% 90%, #2b1f33 0%, transparent 55%),
+      #0a0d12;
+  }
+  .stage{
+    position:fixed;inset:0;display:flex;flex-direction:column;
+    padding:calc(env(safe-area-inset-top) + 24px) 24px calc(env(safe-area-inset-bottom) + 84px);
+    overflow-y:auto;
+  }
+  .datum{font-size:clamp(15px,4.2vw,20px);letter-spacing:.14em;color:var(--ink-dim);text-transform:lowercase}
+  .clock{
+    margin-top:2vh;font-weight:200;line-height:.95;
+    font-size:clamp(64px,22vw,130px);letter-spacing:-.01em;
+    font-variant-numeric:tabular-nums;text-shadow:0 2px 24px rgba(0,0,0,.35);
+  }
+  .clock .colon{display:inline-block;animation:pulse 2s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media (prefers-reduced-motion: reduce){.clock .colon{animation:none}.big.active::after{animation:none}}
+  .status{margin-top:12px;font-size:clamp(13px,3.8vw,16px);color:var(--ink-dim);min-height:42px;line-height:1.45}
+  .status b{color:var(--accent);font-weight:500}
+  .mid{display:flex;flex-direction:column;align-items:center;margin:3vh 0 2vh}
+  .big{
+    position:relative;width:min(58vw,230px);height:min(58vw,230px);border-radius:50%;
+    border:1px solid var(--line);cursor:pointer;color:#231a0d;
+    background:radial-gradient(circle at 35% 30%, #ffe8c2, var(--accent) 70%);
+    font-size:clamp(26px,8vw,36px);font-weight:600;letter-spacing:.04em;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+    box-shadow:0 8px 40px rgba(255,217,160,.18);
+  }
+  .big small{font-size:13px;font-weight:500;opacity:.7;letter-spacing:.06em}
+  .big:active{transform:scale(.97)}
+  .big.active{background:radial-gradient(circle at 35% 30%, #c8f2d2, var(--ok) 70%)}
+  .big.active::after{
+    content:"";position:absolute;inset:-10px;border-radius:50%;
+    border:2px solid var(--ok);opacity:.5;animation:ring 2.4s ease-out infinite;
+  }
+  @keyframes ring{0%{transform:scale(.96);opacity:.6}100%{transform:scale(1.12);opacity:0}}
+  .cancel{margin-top:14px;background:none;border:none;color:var(--ink-faint);font-size:13px;text-decoration:underline;cursor:pointer;display:none}
+  .sum{font-size:clamp(13px,3.8vw,15px);color:var(--ink-dim);letter-spacing:.03em;margin-top:2vh}
+  .sum b{color:var(--ink);font-weight:500}
+  .recent{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+  .rrow{
+    display:flex;gap:12px;align-items:baseline;font-size:clamp(13px,3.8vw,15px);cursor:pointer;
+    background:rgba(255,255,255,.05);border-radius:10px;padding:9px 12px;
+  }
+  .rrow .d{color:var(--accent);font-variant-numeric:tabular-nums;flex:0 0 auto;min-width:64px}
+  .rrow .t{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink)}
+  .rrow .k{color:var(--ink-dim);font-variant-numeric:tabular-nums;flex:0 0 auto}
+
+  .fab,.gear{
+    position:fixed;bottom:calc(env(safe-area-inset-bottom) + 16px);height:44px;border-radius:999px;
+    display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,.08);backdrop-filter:blur(6px);
+    border:1px solid var(--line);cursor:pointer;color:var(--ink);z-index:40;
+  }
+  .fab{left:18px;padding:0 20px;font-size:15px;font-weight:500}
+  .gear{right:18px;width:44px;opacity:.7}
+  .gear svg{width:20px;height:20px;stroke:var(--ink);fill:none;stroke-width:1.6}
+
+  .shade{position:fixed;inset:0;background:rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .3s;z-index:45}
+  .shade.on{opacity:1;pointer-events:auto}
+  .sheet{
+    position:fixed;left:0;right:0;bottom:0;z-index:50;
+    background:var(--sheet);backdrop-filter:blur(18px);
+    border-radius:20px 20px 0 0;border-top:1px solid var(--line);
+    max-height:90vh;overflow-y:auto;
+    padding:20px 22px calc(env(safe-area-inset-bottom) + 26px);
+    transform:translateY(105%);transition:transform .35s cubic-bezier(.3,.9,.3,1);
+    visibility:hidden;
+  }
+  .sheet.open{transform:translateY(0);visibility:visible}
+  .sheet h2{font-size:15px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim);margin:20px 0 10px}
+  .sheet h2:first-of-type{margin-top:4px}
+  .closex{position:absolute;top:14px;right:16px;background:none;border:none;color:var(--ink-dim);font-size:26px;cursor:pointer;line-height:1}
+  .row{display:flex;gap:10px;align-items:center;margin-bottom:10px}
+  label.f{display:block;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin:12px 0 5px}
+  .sheet input[type=text],.sheet input[type=number],.sheet input[type=date],.sheet input[type=time],.sheet select{
+    width:100%;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);padding:12px;font-size:16px;outline:none;min-width:0;color-scheme:dark;
+  }
+  .grow{flex:1}
+  .btn{
+    background:rgba(255,255,255,.12);border:1px solid var(--line);border-radius:10px;
+    color:var(--ink);padding:12px 16px;font-size:14px;font-weight:500;cursor:pointer;flex:0 0 auto;
+  }
+  .btn.primary{background:var(--accent);color:#231a0d;border-color:transparent}
+  .btn.danger{color:var(--warn)}
+  .btn.full{width:100%;margin-top:16px;padding:15px;font-size:16px}
+  .btn:active{transform:scale(.97)}
+  .hint{font-size:12.5px;color:var(--ink-faint);line-height:1.5;margin-top:6px}
+  .hint.warn{color:var(--warn)}
+  .hint.ok{color:var(--ok)}
+  .thumb{display:block;max-width:100%;max-height:160px;border-radius:10px;margin-top:8px;border:1px solid var(--line)}
+  .photos{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+  .photos img{width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+  .photos figcaption{font-size:11px;color:var(--ink-faint);margin-top:3px}
+
+  .mnav{display:flex;align-items:center;justify-content:space-between;margin:2px 0 6px}
+  .mnav .m{font-size:17px;font-weight:500;text-transform:capitalize}
+  .mnav button{background:none;border:1px solid var(--line);color:var(--ink);border-radius:10px;width:42px;height:38px;font-size:18px;cursor:pointer}
+  .mtotals{font-size:13.5px;color:var(--ink-dim);line-height:1.6;margin-bottom:10px}
+  .mtotals b{color:var(--ink);font-weight:500}
+  .jlist{display:flex;flex-direction:column;gap:7px;margin:10px 0 14px}
+  .jrow{background:rgba(255,255,255,.05);border-radius:10px;padding:10px 12px;cursor:pointer;font-size:14px}
+  .jrow .l1{display:flex;gap:10px;justify-content:space-between;font-variant-numeric:tabular-nums}
+  .jrow .l1 .d{color:var(--accent)}
+  .jrow .l2{color:var(--ink-dim);font-size:12.5px;margin-top:3px;line-height:1.4}
+  .jrow.priv{opacity:.65}
+  .toast{
+    position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 76px);
+    transform:translateX(-50%) translateY(20px);opacity:0;z-index:70;
+    background:var(--sheet);border:1px solid var(--line);
+    padding:10px 18px;border-radius:999px;font-size:14px;pointer-events:none;
+    transition:.35s;max-width:90vw;text-align:center;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  /* print view */
+  #printview{display:none}
+  #printview.on{display:block;position:fixed;inset:0;z-index:100;background:#fff;color:#000;overflow:auto;padding:18px}
+  #printview .bar{display:flex;gap:10px;margin-bottom:14px}
+  #printview h1{font-size:20px;margin-bottom:4px}
+  #printview p{font-size:13px;margin-bottom:10px}
+  #printview table{width:100%;border-collapse:collapse;font-size:11.5px}
+  #printview th,#printview td{border:1px solid #888;padding:4px 5px;text-align:left;vertical-align:top}
+  #printview th{background:#eee}
+  #printview .btn{background:#eee;color:#000;border:1px solid #888}
+  @media print{
+    body > *:not(#printview){display:none !important}
+    #printview.on{position:static;padding:0}
+    #printview .bar{display:none}
+    html,body{overflow:visible;height:auto}
+  }
+</style>
+</head>
+<body>
+
+<div class="bg"></div>
+
+<div class="stage">
+  <div class="datum" id="datum">–</div>
+  <div class="clock" id="clock">--<span class="colon">.</span>--</div>
+  <div class="status" id="status"></div>
+
+  <div class="mid">
+    <button class="big" id="bigbtn"><span id="bigtxt">Lähtö</span><small id="bigsub">aloita ajo</small></button>
+    <button class="cancel" id="cancelbtn">Peruuta käynnissä oleva ajo</button>
+  </div>
+
+  <div class="sum" id="sum"></div>
+  <div class="recent" id="recent"></div>
+</div>
+
+<button class="fab" id="jbtn">Päiväkirja</button>
+<button class="gear" id="gearbtn" aria-label="Asetukset">
+  <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.01A1.7 1.7 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.01A1.7 1.7 0 0 0 20.91 10H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>
+</button>
+
+<div class="shade" id="shade"></div>
+
+<!-- capture sheet: lähtö / perillä -->
+<div class="sheet" id="capsheet">
+  <button class="closex" id="capclose" aria-label="Sulje">×</button>
+  <h2 id="captitle">Lähtö</h2>
+
+  <label class="f" for="captime">Kellonaika</label>
+  <input type="time" id="captime">
+
+  <label class="f" for="addr">Osoite / paikka</label>
+  <input type="text" id="addr" placeholder="Haetaan sijaintia…" maxlength="120">
+  <div class="hint" id="locstat"></div>
+
+  <label class="f" for="odo">Matkamittarin lukema (km)</label>
+  <input type="number" id="odo" inputmode="numeric" min="0" step="1" placeholder="esim. 123456">
+  <div class="hint" id="odohint"></div>
+
+  <div id="endonly">
+    <label class="f" for="purpose">Ajon tarkoitus</label>
+    <input type="text" id="purpose" maxlength="100" placeholder="esim. Kohdekierto, Hakunila">
+    <div class="hint" id="purposehint"></div>
+    <label class="f" for="ctype">Ajon laji</label>
+    <select id="ctype"><option value="work">Työajo</option><option value="priv">Yksityisajo</option></select>
+  </div>
+
+  <label class="f">Mittarikuva (valinnainen, tallentuu aikaleimalla)</label>
+  <div class="row">
+    <button class="btn" id="photobtn">Ota kuva mittarista</button>
+    <button class="btn" id="photoclear" style="display:none">Poista kuva</button>
+  </div>
+  <input type="file" id="photoinput" accept="image/*" capture="environment" style="display:none">
+  <img class="thumb" id="thumb" alt="" style="display:none">
+
+  <div class="hint" id="kmhint"></div>
+  <button class="btn primary full" id="capok">Tallenna</button>
+</div>
+
+<!-- journal -->
+<div class="sheet" id="jsheet">
+  <button class="closex" id="jclose" aria-label="Sulje">×</button>
+  <h2>Päiväkirja</h2>
+  <div class="mnav">
+    <button id="mprev" aria-label="Edellinen kuukausi">‹</button>
+    <span class="m" id="mlabel">–</span>
+    <button id="mnext" aria-label="Seuraava kuukausi">›</button>
+  </div>
+  <div class="mtotals" id="mtotals"></div>
+  <div class="jlist" id="jlist"></div>
+  <div class="row">
+    <button class="btn primary" id="addmanual">+ Lisää ajo käsin</button>
+  </div>
+  <h2>Vie</h2>
+  <div class="row">
+    <button class="btn" id="csvmonth">CSV (kuukausi)</button>
+    <button class="btn" id="csvall">CSV (kaikki)</button>
+    <button class="btn" id="printbtn">Tulosta</button>
+  </div>
+  <div class="hint">CSV aukeaa suoraan Excelissä. Verohallinto vaatii ajopäiväkirjan säilytettäväksi 6 vuotta.</div>
+</div>
+
+<!-- edit / manual add -->
+<div class="sheet" id="esheet">
+  <button class="closex" id="eclose" aria-label="Sulje">×</button>
+  <h2 id="etitle">Muokkaa ajoa</h2>
+  <label class="f" for="e_date">Päivä</label>
+  <input type="date" id="e_date">
+  <div class="row" style="margin-top:12px">
+    <div class="grow"><label class="f" style="margin-top:0" for="e_st">Lähtö</label><input type="time" id="e_st"></div>
+    <div class="grow"><label class="f" style="margin-top:0" for="e_et">Perillä</label><input type="time" id="e_et"></div>
+  </div>
+  <label class="f" for="e_sa">Lähtöpaikka</label>
+  <input type="text" id="e_sa" maxlength="120">
+  <label class="f" for="e_ea">Määränpää</label>
+  <input type="text" id="e_ea" maxlength="120">
+  <div class="row" style="margin-top:12px">
+    <div class="grow"><label class="f" style="margin-top:0" for="e_os">Mittari alussa</label><input type="number" id="e_os" inputmode="numeric" min="0" step="1"></div>
+    <div class="grow"><label class="f" style="margin-top:0" for="e_oe">Mittari lopussa</label><input type="number" id="e_oe" inputmode="numeric" min="0" step="1"></div>
+  </div>
+  <label class="f" for="e_km">Kilometrit</label>
+  <input type="number" id="e_km" inputmode="decimal" min="0" step="0.1">
+  <div class="hint" id="e_kmhint">Lasketaan mittarilukemista, jos molemmat on annettu.</div>
+  <label class="f" for="e_pur">Ajon tarkoitus</label>
+  <input type="text" id="e_pur" maxlength="100">
+  <label class="f" for="e_type">Ajon laji</label>
+  <select id="e_type"><option value="work">Työajo</option><option value="priv">Yksityisajo</option></select>
+  <div class="photos" id="e_photos"></div>
+  <div class="hint" id="e_err" style="min-height:18px"></div>
+  <button class="btn primary full" id="e_save">Tallenna</button>
+  <button class="btn danger full" id="e_del" style="margin-top:10px">Poista ajo</button>
+</div>
+
+<!-- settings -->
+<div class="sheet" id="ssheet">
+  <button class="closex" id="sclose" aria-label="Sulje">×</button>
+  <h2>Asetukset</h2>
+  <label class="f" for="s_veh">Rekisterinumero</label>
+  <input type="text" id="s_veh" maxlength="12" placeholder="ABC-123">
+  <label class="f" for="s_rate">Kilometrikorvaus (€/km)</label>
+  <input type="number" id="s_rate" inputmode="decimal" min="0" step="0.01">
+  <div class="hint">Verovapaa kilometrikorvaus 2026: 0,55 €/km (henkilöauto). Tarkista summa Verohallinnolta vuosittain.</div>
+
+  <h2>Varmuuskopio</h2>
+  <div class="row">
+    <button class="btn" id="bkexport">Tallenna varmuuskopio</button>
+    <button class="btn" id="bkimport">Palauta</button>
+  </div>
+  <input type="file" id="bkfile" accept="application/json,.json" style="display:none">
+  <div class="hint">Ajot ja kuvat ovat vain tässä puhelimessa. Tee varmuuskopio esimerkiksi kerran kuussa ja tallenna se pilveen. Jos selaimen tiedot tyhjennetään, ajot katoavat.</div>
+  <div class="hint" id="storehint"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div id="printview"></div>
+
+<script>
+"use strict";
+
+/* ================= helpers ================= */
+const $ = id => document.getElementById(id);
+const LS = {
+  get(k, d){ try{ const v = localStorage.getItem("ak_"+k); return v===null ? d : JSON.parse(v); }catch(e){ return d; } },
+  set(k, v){ try{ localStorage.setItem("ak_"+k, JSON.stringify(v)); return true; }catch(e){ return false; } },
+  del(k){ try{ localStorage.removeItem("ak_"+k); }catch(e){} }
+};
+function pad(n){ return String(n).padStart(2,"0"); }
+function esc(s){ return String(s == null ? "" : s).replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c])); }
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 3200);
+}
+const nfmt = new Intl.NumberFormat("fi-FI", {maximumFractionDigits:1});
+function fmtN(n){ return nfmt.format(n); }
+function eur(km, rate){ return (Math.round(km * rate * 100) / 100).toFixed(2).replace(".", ",") + " €"; }
+function dateStrOf(ts){ const d = new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate()); }
+function timeStrOf(ts){ const d = new Date(ts); return pad(d.getHours())+":"+pad(d.getMinutes()); }
+function monthKey(ts){ const d = new Date(ts); return d.getFullYear()+"-"+pad(d.getMonth()+1); }
+function tsFrom(dateStr, timeStr){
+  const [y,m,d] = dateStr.split("-").map(Number);
+  const [h,mi] = (timeStr || "00:00").split(":").map(Number);
+  return new Date(y, m-1, d, h, mi, 0, 0).getTime();
+}
+function fmtT(ts){ const d = new Date(ts); return pad(d.getHours())+"."+pad(d.getMinutes()); }
+function fmtDateLong(ts){ const d = new Date(ts); return d.getDate()+"."+(d.getMonth()+1)+"."+d.getFullYear(); }
+const fmtDay = new Intl.DateTimeFormat("fi-FI", {weekday:"short", day:"numeric", month:"numeric"});
+const fmtHead = new Intl.DateTimeFormat("fi-FI", {weekday:"long", day:"numeric", month:"long"});
+const fmtMonth = new Intl.DateTimeFormat("fi-FI", {month:"long", year:"numeric"});
+function monthLabel(key){ const [y,m] = key.split("-").map(Number); return fmtMonth.format(new Date(y, m-1, 15)); }
+
+function cfg(){ return Object.assign({vehicle:"", rate:0.55}, LS.get("cfg", {})); }
+
+/* ================= clock ================= */
+function tick(){
+  const now = new Date();
+  $("clock").innerHTML = pad(now.getHours()) + '<span class="colon">.</span>' + pad(now.getMinutes());
+  $("datum").textContent = fmtHead.format(now);
+  const act = getActive();
+  if (act){
+    const mins = Math.max(0, Math.floor((now.getTime() - act.startTs) / 60000));
+    const el = $("elapsed");
+    if (el) el.textContent = Math.floor(mins/60) + " h " + pad(mins % 60) + " min";
+  }
+}
+
+/* ================= storage: trips & active ================= */
+function getTrips(){ return LS.get("trips", []); }
+function setTrips(a){
+  if (!LS.set("trips", a)) toast("Tallennus epäonnistui — tila täynnä? Tee varmuuskopio.");
+}
+function getActive(){ return LS.get("active", null); }
+function lastOdo(){
+  const t = getTrips().slice().sort((a,b) => b.endTs - a.endTs)[0];
+  return t && typeof t.odoEnd === "number" ? t.odoEnd : null;
+}
+
+/* ================= photos (IndexedDB) ================= */
+let db = null;
+function openDB(){
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open("ajokello", 1);
+    rq.onupgradeneeded = () => {
+      if (!rq.result.objectStoreNames.contains("photos")) rq.result.createObjectStore("photos", {autoIncrement:true});
+    };
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+function dbAdd(blob){
+  return new Promise((res, rej) => {
+    if (!db){ rej(new Error("no db")); return; }
+    const r = db.transaction("photos","readwrite").objectStore("photos").add(blob);
+    r.onsuccess = e => res(e.target.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function dbGet(id){
+  return new Promise(res => {
+    if (!db || id == null){ res(null); return; }
+    const r = db.transaction("photos","readonly").objectStore("photos").get(id);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror = () => res(null);
+  });
+}
+function dbDel(id){
+  return new Promise(res => {
+    if (!db || id == null){ res(); return; }
+    const tx = db.transaction("photos","readwrite");
+    tx.objectStore("photos").delete(id);
+    tx.oncomplete = () => res();
+    tx.onerror = () => res();
+  });
+}
+
+/* stamp date/time/place/odometer onto the photo; fall back to the original on any failure */
+function stampPhoto(file, lines){
+  return new Promise(res => {
+    let done = false;
+    const finish = v => { if (!done){ done = true; res(v); } };
+    setTimeout(() => finish(file), 8000);
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      try{
+        const MAX = 1600;
+        let w = img.naturalWidth, h = img.naturalHeight;
+        const s = Math.min(1, MAX / Math.max(w, h));
+        w = Math.round(w * s); h = Math.round(h * s);
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        const x = c.getContext("2d");
+        x.drawImage(img, 0, 0, w, h);
+        const fs = Math.max(16, Math.round(w / 34));
+        const p = Math.round(fs * .6);
+        const bh = Math.round(lines.length * fs * 1.3 + p * 2);
+        x.fillStyle = "rgba(0,0,0,.65)"; x.fillRect(0, h - bh, w, bh);
+        x.fillStyle = "#fff"; x.textBaseline = "top";
+        x.font = "600 " + fs + "px -apple-system,Helvetica,Arial,sans-serif";
+        lines.forEach((t, i) => x.fillText(t, p, h - bh + p + i * fs * 1.3, w - p * 2));
+        URL.revokeObjectURL(url);
+        c.toBlob(b => finish(b || file), "image/jpeg", .85);
+      }catch(e){ URL.revokeObjectURL(url); finish(file); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); finish(file); };
+    img.src = url;
+  });
+}
+
+/* ================= location ================= */
+function getPos(){
+  return new Promise(res => {
+    if (!navigator.geolocation){ res(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      p => res({lat:+p.coords.latitude.toFixed(5), lon:+p.coords.longitude.toFixed(5), acc:Math.round(p.coords.accuracy)}),
+      () => res(null),
+      {enableHighAccuracy:true, timeout:15000, maximumAge:0}
+    );
+  });
+}
+async function revGeo(lat, lon){
+  try{
+    const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&accept-language=fi&lat=" + lat + "&lon=" + lon);
+    const d = await r.json();
+    const a = d.address || {};
+    const road = a.road || a.pedestrian || a.footway || a.path || "";
+    const no = a.house_number || "";
+    const city = a.city || a.town || a.village || a.municipality || a.suburb || "";
+    const street = road ? road + (no ? " " + no : "") : "";
+    const s = street + (city ? (street ? ", " : "") + city : "");
+    return s || d.display_name || "";
+  }catch(e){ return ""; }
+}
+async function routeKm(a, b){
+  try{
+    const r = await fetch("https://router.project-osrm.org/route/v1/driving/" + a.lon + "," + a.lat + ";" + b.lon + "," + b.lat + "?overview=false");
+    const d = await r.json();
+    if (d.routes && d.routes[0]) return Math.round(d.routes[0].distance / 100) / 10;
+  }catch(e){}
+  return null;
+}
+
+/* ================= sheets ================= */
+let cap = null;
+let editId = null, editUrls = [], editFrom = "j";
+function openSheet(id){
+  document.querySelectorAll(".sheet").forEach(s => s.classList.toggle("open", s.id === id));
+  $("shade").classList.add("on");
+}
+function closeSheets(){
+  document.querySelectorAll(".sheet").forEach(s => s.classList.remove("open"));
+  $("shade").classList.remove("on");
+  cap = null;
+  editUrls.forEach(u => URL.revokeObjectURL(u)); editUrls = [];
+}
+
+/* ================= main screen ================= */
+function renderMain(){
+  const act = getActive();
+  const big = $("bigbtn");
+  big.classList.toggle("active", !!act);
+  $("bigtxt").textContent = act ? "Perillä" : "Lähtö";
+  $("bigsub").textContent = act ? "lopeta ajo" : "aloita ajo";
+  $("cancelbtn").style.display = act ? "inline-block" : "none";
+  if (act){
+    $("status").innerHTML = "Ajossa · lähtö <b>" + fmtT(act.startTs) + "</b> · " + esc(act.startAddr) +
+      "<br><span id='elapsed'></span> · mittari " + fmtN(act.odoStart) + " km";
+  } else {
+    const last = lastOdo();
+    $("status").textContent = last != null ? "Ei ajossa · mittari viimeksi " + fmtN(last) + " km" : "Ei ajossa";
+  }
+  /* month summary */
+  const key = monthKey(Date.now());
+  const c = cfg();
+  const list = getTrips().filter(t => monthKey(t.startTs) === key);
+  const work = list.filter(t => t.type !== "priv");
+  const km = work.reduce((s, t) => s + t.km, 0);
+  $("sum").innerHTML = list.length
+    ? "<b style='text-transform:capitalize'>" + esc(monthLabel(key)) + "</b>: " + work.length + " työajoa · <b>" + fmtN(km) + " km</b> · " + eur(km, c.rate)
+    : "";
+  /* recent */
+  const rec = getTrips().slice().sort((a,b) => b.startTs - a.startTs).slice(0, 3);
+  $("recent").innerHTML = rec.map(t =>
+    "<div class='rrow' data-id='" + t.id + "'><span class='d'>" + esc(fmtDay.format(new Date(t.startTs))) +
+    "</span><span class='t'>" + esc(t.purpose || t.endAddr) + "</span><span class='k'>" + fmtN(t.km) + " km</span></div>"
+  ).join("");
+  $("recent").querySelectorAll(".rrow").forEach(r =>
+    r.addEventListener("click", () => openEdit(+r.dataset.id)));
+  tick();
+}
+
+/* ================= capture (lähtö / perillä) ================= */
+function purposeSuggestions(){
+  const seen = [];
+  getTrips().slice().sort((a,b) => b.startTs - a.startTs).forEach(t => {
+    if (t.purpose && !seen.includes(t.purpose)) seen.push(t.purpose);
+  });
+  return seen.slice(0, 4);
+}
+function openCapture(mode){
+  const act = getActive();
+  cap = {mode, ts:Date.now(), pos:null, addrEdited:false, file:null, thumbUrl:null, route:null, startPos:null, busy:false};
+  $("captitle").textContent = mode === "start" ? "Lähtö" : "Perillä";
+  $("captime").value = timeStrOf(cap.ts);
+  $("addr").value = ""; $("addr").placeholder = "Haetaan sijaintia…";
+  $("locstat").textContent = ""; $("kmhint").textContent = ""; $("kmhint").className = "hint";
+  $("odo").value = "";
+  $("endonly").style.display = mode === "end" ? "block" : "none";
+  $("purpose").value = ""; $("ctype").value = "work";
+  $("thumb").style.display = "none"; $("photoclear").style.display = "none";
+  $("photoinput").value = "";
+  if (mode === "start"){
+    const last = lastOdo();
+    $("odohint").textContent = last != null ? "Edellinen ajo päättyi lukemaan " + fmtN(last) + " km." : "";
+    $("capok").textContent = "Aloita ajo";
+  } else {
+    $("odohint").textContent = "Lähtölukema oli " + fmtN(act.odoStart) + " km.";
+    const sug = purposeSuggestions();
+    $("purposehint").textContent = sug.length ? "Aiemmat: " + sug.join(" · ") : "";
+    $("capok").textContent = "Päätä ajo ja tallenna";
+    if (act.startLat != null) cap.startPos = {lat:act.startLat, lon:act.startLon};
+  }
+  openSheet("capsheet");
+  locate();
+}
+async function locate(){
+  const my = cap;
+  $("locstat").textContent = "Haetaan sijaintia…";
+  const pos = await getPos();
+  if (cap !== my) return;
+  if (!pos){
+    $("addr").placeholder = "Kirjoita osoite tai paikka";
+    $("locstat").textContent = "Sijaintia ei saatu. Salli paikannus tai kirjoita osoite käsin.";
+    return;
+  }
+  my.pos = pos;
+  $("locstat").textContent = "Sijainti saatu (±" + pos.acc + " m)";
+  const a = await revGeo(pos.lat, pos.lon);
+  if (cap !== my) return;
+  if (a){
+    if (!my.addrEdited) $("addr").value = a;
+  } else {
+    $("addr").placeholder = "Kirjoita osoite tai paikka";
+    $("locstat").textContent += " · osoitetta ei löytynyt, kirjoita se käsin";
+  }
+  if (my.mode === "end" && my.startPos){
+    my.route = await routeKm(my.startPos, pos);
+    if (cap === my) updateKmHint();
+  }
+}
+function updateKmHint(){
+  if (!cap || cap.mode !== "end") return;
+  const act = getActive();
+  const odo = parseInt($("odo").value, 10);
+  const h = $("kmhint");
+  if (!(odo >= 0)){
+    h.className = "hint";
+    h.textContent = cap.route != null ? "Reitin pituus noin " + fmtN(cap.route) + " km." : "";
+    return;
+  }
+  const km = odo - act.odoStart;
+  if (km < 0){ h.className = "hint warn"; h.textContent = "Loppulukema on pienempi kuin lähtölukema."; return; }
+  let t = "Ajettu " + fmtN(km) + " km";
+  let cls = "hint ok";
+  if (cap.route != null){
+    t += " · reitti noin " + fmtN(cap.route) + " km";
+    const diff = Math.abs(km - cap.route);
+    if (km > 5 && diff / Math.max(km, cap.route) > 0.35){
+      t += ". Ero on suuri, tarkista mittarilukemat (voit silti tallentaa)."; cls = "hint warn";
+    }
+  }
+  if (km > 1500){ t += ". Pitkä matka, tarkista lukema."; cls = "hint warn"; }
+  h.className = cls; h.textContent = t;
+}
+async function confirmCapture(){
+  if (!cap || cap.busy) return;
+  const my = cap;
+  const act = getActive();
+  const odo = parseInt($("odo").value, 10);
+  const addr = $("addr").value.trim();
+  if (!(odo >= 0)){ toast("Anna matkamittarin lukema"); return; }
+  if (!addr){ toast("Anna osoite tai paikka"); return; }
+  const tstr = $("captime").value;
+  const ts = tstr ? tsFrom(dateStrOf(my.ts), tstr) : my.ts;
+  let purpose = "", type = "work";
+  if (my.mode === "end"){
+    purpose = $("purpose").value.trim(); type = $("ctype").value;
+    if (odo < act.odoStart){ toast("Loppulukema on pienempi kuin lähtölukema"); return; }
+    if (!purpose){ toast("Anna ajon tarkoitus"); return; }
+    if (ts < act.startTs){ toast("Perillä-aika on ennen lähtöaikaa"); return; }
+  }
+  my.busy = true;
+  $("capok").disabled = true;
+  try{
+    let pid = null;
+    if (my.file){
+      const lines = [
+        (my.mode === "start" ? "LÄHTÖ " : "PERILLÄ ") + fmtDateLong(ts) + " " + fmtT(ts),
+        addr,
+        "Mittari " + fmtN(odo) + " km"
+      ];
+      const blob = await stampPhoto(my.file, lines);
+      try{ pid = await dbAdd(blob); }catch(e){ toast("Kuvan tallennus ei onnistunut, ajo tallennetaan ilman kuvaa"); }
+    }
+    if (my.mode === "start"){
+      LS.set("active", {
+        startTs:ts, startAddr:addr, startLat:my.pos ? my.pos.lat : null, startLon:my.pos ? my.pos.lon : null,
+        odoStart:odo, startPhoto:pid
+      });
+      closeSheets();
+      toast("Ajo aloitettu. Hyvää matkaa!");
+    } else {
+      const trip = {
+        id:Date.now(), startTs:act.startTs, endTs:ts,
+        startAddr:act.startAddr, endAddr:addr,
+        startLat:act.startLat, startLon:act.startLon,
+        endLat:my.pos ? my.pos.lat : null, endLon:my.pos ? my.pos.lon : null,
+        odoStart:act.odoStart, odoEnd:odo, km:odo - act.odoStart,
+        purpose, type, vehicle:cfg().vehicle,
+        startPhoto:act.startPhoto, endPhoto:pid, routeKm:my.route
+      };
+      const trips = getTrips(); trips.push(trip); setTrips(trips);
+      LS.del("active");
+      closeSheets();
+      toast("Ajo tallennettu: " + fmtN(trip.km) + " km");
+    }
+  } finally {
+    my.busy = false;
+    $("capok").disabled = false;
+  }
+  renderMain();
+}
+async function cancelActive(){
+  const act = getActive();
+  if (!act) return;
+  if (!confirm("Peruutetaanko käynnissä oleva ajo? Lähtötiedot poistetaan.")) return;
+  await dbDel(act.startPhoto);
+  LS.del("active");
+  renderMain();
+  toast("Ajo peruttu");
+}
+
+/* ================= journal ================= */
+let jm = monthKey(Date.now());
+function tripsOfMonth(key){ return getTrips().filter(t => monthKey(t.startTs) === key); }
+function renderJournal(){
+  $("mlabel").textContent = monthLabel(jm);
+  const list = tripsOfMonth(jm).sort((a,b) => b.startTs - a.startTs);
+  const c = cfg();
+  const work = list.filter(t => t.type !== "priv"), priv = list.filter(t => t.type === "priv");
+  const wk = work.reduce((s,t) => s + t.km, 0), pk = priv.reduce((s,t) => s + t.km, 0);
+  $("mtotals").innerHTML = list.length
+    ? "Työajot: <b>" + fmtN(wk) + " km</b> (" + work.length + " ajoa) · korvaus <b>" + eur(wk, c.rate) + "</b>" +
+      (priv.length ? "<br>Yksityisajot: " + fmtN(pk) + " km" : "")
+    : "Ei ajoja tässä kuussa.";
+  $("jlist").innerHTML = list.map(t =>
+    "<div class='jrow" + (t.type === "priv" ? " priv" : "") + "' data-id='" + t.id + "'>" +
+    "<div class='l1'><span class='d'>" + esc(fmtDay.format(new Date(t.startTs))) + " " + fmtT(t.startTs) + "–" + fmtT(t.endTs) +
+    "</span><span>" + fmtN(t.km) + " km</span></div>" +
+    "<div class='l2'>" + esc(t.startAddr) + " → " + esc(t.endAddr) + "<br>" + esc(t.purpose) +
+    (t.type === "priv" ? " · yksityinen" : "") + ((t.startPhoto != null || t.endPhoto != null) ? " · 📷" : "") + "</div></div>"
+  ).join("");
+  $("jlist").querySelectorAll(".jrow").forEach(r => r.addEventListener("click", () => openEdit(+r.dataset.id)));
+}
+function shiftMonth(delta){
+  const [y,m] = jm.split("-").map(Number);
+  const d = new Date(y, m-1+delta, 1);
+  jm = d.getFullYear() + "-" + pad(d.getMonth()+1);
+  renderJournal();
+}
+
+/* ================= edit / manual add ================= */
+async function openEdit(id){
+  editFrom = $("jsheet").classList.contains("open") ? "j" : "main";
+  editId = id;
+  const t = id == null ? null : getTrips().find(x => x.id === id);
+  $("etitle").textContent = t ? "Muokkaa ajoa" : "Lisää ajo käsin";
+  $("e_err").textContent = "";
+  $("e_del").style.display = t ? "block" : "none";
+  const base = t ? t.startTs : Date.now();
+  $("e_date").value = dateStrOf(base);
+  $("e_st").value = t ? timeStrOf(t.startTs) : "";
+  $("e_et").value = t ? timeStrOf(t.endTs) : "";
+  $("e_sa").value = t ? t.startAddr : "";
+  $("e_ea").value = t ? t.endAddr : "";
+  $("e_os").value = t && t.odoStart != null ? t.odoStart : "";
+  $("e_oe").value = t && t.odoEnd != null ? t.odoEnd : "";
+  $("e_km").value = t ? t.km : "";
+  $("e_pur").value = t ? t.purpose : "";
+  $("e_type").value = t && t.type === "priv" ? "priv" : "work";
+  $("e_photos").innerHTML = "";
+  editUrls.forEach(u => URL.revokeObjectURL(u)); editUrls = [];
+  openSheet("esheet");
+  if (t){
+    for (const [pid, label] of [[t.startPhoto, "Lähtö"], [t.endPhoto, "Perillä"]]){
+      if (pid == null) continue;
+      const b = await dbGet(pid);
+      if (!b || editId !== id) continue;
+      const u = URL.createObjectURL(b); editUrls.push(u);
+      const fig = document.createElement("figure");
+      fig.innerHTML = "<a href='" + u + "' target='_blank' rel='noopener'><img alt='" + label + "' src='" + u + "'></a><figcaption>" + label + "</figcaption>";
+      $("e_photos").appendChild(fig);
+    }
+  }
+}
+function calcEditKm(){
+  const os = parseInt($("e_os").value, 10), oe = parseInt($("e_oe").value, 10);
+  if (os >= 0 && oe >= 0 && oe >= os){ $("e_km").value = oe - os; }
+}
+function saveEdit(){
+  const err = m => { $("e_err").textContent = m; $("e_err").className = "hint warn"; };
+  const date = $("e_date").value, st = $("e_st").value, et = $("e_et").value;
+  const sa = $("e_sa").value.trim(), ea = $("e_ea").value.trim(), pur = $("e_pur").value.trim();
+  if (!date) return err("Anna päivä.");
+  if (!st || !et) return err("Anna lähtö- ja saapumisaika.");
+  if (!sa || !ea) return err("Anna lähtöpaikka ja määränpää.");
+  if (!pur) return err("Anna ajon tarkoitus.");
+  const osv = $("e_os").value, oev = $("e_oe").value;
+  const os = osv === "" ? null : parseInt(osv, 10), oe = oev === "" ? null : parseInt(oev, 10);
+  if ((os != null && !(os >= 0)) || (oe != null && !(oe >= 0))) return err("Tarkista mittarilukemat.");
+  if (os != null && oe != null && oe < os) return err("Loppulukema on pienempi kuin lähtölukema.");
+  let km;
+  if (os != null && oe != null) km = oe - os;
+  else { km = parseFloat($("e_km").value); if (!(km >= 0)) return err("Anna kilometrit tai molemmat mittarilukemat."); }
+  const startTs = tsFrom(date, st);
+  let endTs = tsFrom(date, et);
+  if (endTs < startTs) endTs += 864e5;
+  const trips = getTrips();
+  const type = $("e_type").value;
+  if (editId == null){
+    trips.push({id:Date.now(), startTs, endTs, startAddr:sa, endAddr:ea, startLat:null, startLon:null, endLat:null, endLon:null,
+      odoStart:os, odoEnd:oe, km, purpose:pur, type, vehicle:cfg().vehicle, startPhoto:null, endPhoto:null, routeKm:null});
+  } else {
+    const t = trips.find(x => x.id === editId);
+    if (!t) return err("Ajoa ei löytynyt.");
+    Object.assign(t, {startTs, endTs, startAddr:sa, endAddr:ea, odoStart:os, odoEnd:oe, km, purpose:pur, type});
+  }
+  setTrips(trips);
+  jm = monthKey(startTs);
+  closeEdit();
+  renderMain();
+  toast("Tallennettu");
+}
+async function deleteEdit(){
+  if (editId == null) return;
+  if (!confirm("Poistetaanko ajo ja sen kuvat pysyvästi?")) return;
+  const trips = getTrips();
+  const t = trips.find(x => x.id === editId);
+  if (t){ await dbDel(t.startPhoto); await dbDel(t.endPhoto); }
+  setTrips(trips.filter(x => x.id !== editId));
+  closeEdit();
+  renderMain();
+  toast("Ajo poistettu");
+}
+function closeEdit(){
+  editUrls.forEach(u => URL.revokeObjectURL(u)); editUrls = [];
+  editId = null;
+  if (editFrom === "main"){ closeSheets(); return; }
+  renderJournal();
+  openSheet("jsheet");
+}
+
+/* ================= export ================= */
+function csvCell(v){
+  const s = String(v == null ? "" : v);
+  return /[";\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function buildCsv(list){
+  const head = ["Päivä","Lähtöaika","Saapumisaika","Lähtöpaikka","Määränpää","Tarkoitus","Laji","Mittari alussa","Mittari lopussa","Km","Rekisterinumero"];
+  const rows = list.slice().sort((a,b) => a.startTs - b.startTs).map(t => [
+    fmtDateLong(t.startTs), fmtT(t.startTs), fmtT(t.endTs), t.startAddr, t.endAddr, t.purpose,
+    t.type === "priv" ? "Yksityinen" : "Työ",
+    t.odoStart == null ? "" : t.odoStart, t.odoEnd == null ? "" : t.odoEnd,
+    String(t.km).replace(".", ","), t.vehicle || ""
+  ]);
+  return "﻿" + [head].concat(rows).map(r => r.map(csvCell).join(";")).join("\r\n");
+}
+function download(name, text, type){
+  const b = new Blob([text], {type});
+  const u = URL.createObjectURL(b);
+  const a = document.createElement("a");
+  a.href = u; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 5000);
+}
+function exportCsv(all){
+  const list = all ? getTrips() : tripsOfMonth(jm);
+  if (!list.length){ toast("Ei ajoja vietäväksi"); return; }
+  download("ajopaivakirja-" + (all ? "kaikki" : jm) + ".csv", buildCsv(list), "text/csv;charset=utf-8");
+}
+function showPrint(){
+  const list = tripsOfMonth(jm).sort((a,b) => a.startTs - b.startTs);
+  if (!list.length){ toast("Ei ajoja tulostettavaksi"); return; }
+  const c = cfg();
+  const work = list.filter(t => t.type !== "priv"), wk = work.reduce((s,t) => s + t.km, 0);
+  let h = "<div class='bar'><button class='btn' id='pv_print'>Tulosta / tallenna PDF</button><button class='btn' id='pv_close'>Sulje</button></div>" +
+    "<h1>Ajopäiväkirja · " + esc(monthLabel(jm)) + "</h1><p>Ajoneuvo: " + esc(c.vehicle || "–") +
+    " · Työajot yhteensä " + fmtN(wk) + " km · korvaus " + eur(wk, c.rate) + " (" + String(c.rate).replace(".", ",") + " €/km)</p>" +
+    "<table><tr><th>Päivä</th><th>Lähtö</th><th>Perillä</th><th>Lähtöpaikka</th><th>Määränpää</th><th>Tarkoitus</th><th>Laji</th><th>Mittari alku</th><th>Mittari loppu</th><th>Km</th></tr>";
+  list.forEach(t => {
+    h += "<tr><td>" + fmtDateLong(t.startTs) + "</td><td>" + fmtT(t.startTs) + "</td><td>" + fmtT(t.endTs) + "</td><td>" + esc(t.startAddr) +
+      "</td><td>" + esc(t.endAddr) + "</td><td>" + esc(t.purpose) + "</td><td>" + (t.type === "priv" ? "Yksityinen" : "Työ") +
+      "</td><td>" + (t.odoStart == null ? "" : t.odoStart) + "</td><td>" + (t.odoEnd == null ? "" : t.odoEnd) + "</td><td>" + fmtN(t.km) + "</td></tr>";
+  });
+  h += "</table>";
+  const pv = $("printview");
+  pv.innerHTML = h; pv.classList.add("on");
+  $("pv_print").addEventListener("click", () => window.print());
+  $("pv_close").addEventListener("click", () => { pv.classList.remove("on"); pv.innerHTML = ""; });
+}
+
+/* ================= backup ================= */
+function blobToDataUrl(b){
+  return new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.onerror = () => res(null);
+    r.readAsDataURL(b);
+  });
+}
+function dataUrlToBlob(u){
+  const i = u.indexOf(",");
+  const meta = u.slice(5, i), bin = atob(u.slice(i + 1));
+  const arr = new Uint8Array(bin.length);
+  for (let k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
+  return new Blob([arr], {type: meta.split(";")[0] || "image/jpeg"});
+}
+async function makeBackup(){
+  const trips = getTrips(), act = getActive();
+  const ids = new Set();
+  trips.forEach(t => { if (t.startPhoto != null) ids.add(t.startPhoto); if (t.endPhoto != null) ids.add(t.endPhoto); });
+  if (act && act.startPhoto != null) ids.add(act.startPhoto);
+  const photos = {};
+  for (const id of ids){
+    const b = await dbGet(id);
+    if (b){ const u = await blobToDataUrl(b); if (u) photos[id] = u; }
+  }
+  return {app:"ajokello", v:1, saved:new Date().toISOString(), cfg:cfg(), trips, active:act, photos};
+}
+async function restoreBackup(obj){
+  if (!obj || obj.app !== "ajokello" || !Array.isArray(obj.trips)) throw new Error("Tiedosto ei ole Ajokellon varmuuskopio");
+  const map = {};
+  for (const k of Object.keys(obj.photos || {})){
+    try{ map[k] = await dbAdd(dataUrlToBlob(obj.photos[k])); }catch(e){}
+  }
+  const re = id => id == null ? null : (map[id] != null ? map[id] : null);
+  const trips = getTrips();
+  const have = new Set(trips.map(t => t.id));
+  let added = 0;
+  obj.trips.forEach(t => {
+    if (!t || have.has(t.id) || typeof t.startTs !== "number" || typeof t.km !== "number") return;
+    trips.push(Object.assign({}, t, {startPhoto:re(t.startPhoto), endPhoto:re(t.endPhoto)}));
+    added++;
+  });
+  setTrips(trips);
+  if (!getActive() && obj.active && typeof obj.active.startTs === "number"){
+    LS.set("active", Object.assign({}, obj.active, {startPhoto:re(obj.active.startPhoto)}));
+  }
+  if (obj.cfg && !LS.get("cfg", null)) LS.set("cfg", obj.cfg);
+  return added;
+}
+
+/* ================= wiring ================= */
+function wire(){
+  $("bigbtn").addEventListener("click", () => openCapture(getActive() ? "end" : "start"));
+  $("cancelbtn").addEventListener("click", cancelActive);
+  $("capclose").addEventListener("click", closeSheets);
+  $("capok").addEventListener("click", confirmCapture);
+  $("addr").addEventListener("input", () => { if (cap) cap.addrEdited = true; });
+  $("odo").addEventListener("input", updateKmHint);
+  $("photobtn").addEventListener("click", () => $("photoinput").click());
+  $("photoinput").addEventListener("change", e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f || !cap) return;
+    cap.file = f;
+    if (cap.thumbUrl) URL.revokeObjectURL(cap.thumbUrl);
+    cap.thumbUrl = URL.createObjectURL(f);
+    $("thumb").src = cap.thumbUrl; $("thumb").style.display = "block";
+    $("photoclear").style.display = "inline-block";
+  });
+  $("photoclear").addEventListener("click", () => {
+    if (!cap) return;
+    cap.file = null; $("photoinput").value = "";
+    $("thumb").style.display = "none"; $("photoclear").style.display = "none";
+  });
+
+  $("jbtn").addEventListener("click", () => { jm = monthKey(Date.now()); renderJournal(); openSheet("jsheet"); });
+  $("jclose").addEventListener("click", closeSheets);
+  $("mprev").addEventListener("click", () => shiftMonth(-1));
+  $("mnext").addEventListener("click", () => shiftMonth(1));
+  $("addmanual").addEventListener("click", () => openEdit(null));
+  $("csvmonth").addEventListener("click", () => exportCsv(false));
+  $("csvall").addEventListener("click", () => exportCsv(true));
+  $("printbtn").addEventListener("click", showPrint);
+
+  $("eclose").addEventListener("click", closeEdit);
+  $("e_save").addEventListener("click", saveEdit);
+  $("e_del").addEventListener("click", deleteEdit);
+  $("e_os").addEventListener("input", calcEditKm);
+  $("e_oe").addEventListener("input", calcEditKm);
+
+  $("gearbtn").addEventListener("click", () => {
+    const c = cfg();
+    $("s_veh").value = c.vehicle; $("s_rate").value = c.rate;
+    openSheet("ssheet");
+  });
+  $("sclose").addEventListener("click", () => { closeSheets(); renderMain(); });
+  $("s_veh").addEventListener("change", () => { const c = cfg(); c.vehicle = $("s_veh").value.trim().toUpperCase(); LS.set("cfg", c); });
+  $("s_rate").addEventListener("change", () => {
+    const r = parseFloat($("s_rate").value);
+    const c = cfg();
+    if (r >= 0 && r < 5){ c.rate = r; LS.set("cfg", c); }
+    else { toast("Tarkista korvauksen määrä"); $("s_rate").value = c.rate; }
+  });
+  $("bkexport").addEventListener("click", async () => {
+    toast("Tehdään varmuuskopiota…");
+    try{
+      const b = await makeBackup();
+      download("ajokello-varmuuskopio-" + dateStrOf(Date.now()) + ".json", JSON.stringify(b), "application/json");
+    }catch(e){ toast("Varmuuskopio epäonnistui"); }
+  });
+  $("bkimport").addEventListener("click", () => $("bkfile").click());
+  $("bkfile").addEventListener("change", async e => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try{
+      const n = await restoreBackup(JSON.parse(await f.text()));
+      renderMain(); renderJournal();
+      toast(n + " ajoa palautettu");
+    }catch(err){ toast(err.message || "Palautus epäonnistui"); }
+    e.target.value = "";
+  });
+  $("shade").addEventListener("click", () => { if (!$("capsheet").classList.contains("open")) closeSheets(); });
+}
+
+/* ================= init ================= */
+(async function init(){
+  wire();
+  try{ db = await openDB(); }catch(e){ db = null; }
+  renderMain();
+  setInterval(tick, 1000);
+  try{
+    if (navigator.storage && navigator.storage.persist){
+      const ok = await navigator.storage.persist();
+      $("storehint").textContent = ok ? "Selain suojaa tallennetut tiedot automaattiselta poistolta." : "";
+    }
+  }catch(e){}
+})();
+</script>
+</body>
+</html>
